@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 type DefEntity struct {
-	Header *DefHeader
-	Bodies []*DefBody
+	Header         *DefHeader
+	Bodies         []*DefBody
+	HasEmbeddedSet bool
 }
 
 type DefHeader struct {
@@ -21,14 +23,17 @@ type DefHeader struct {
 }
 
 type DefBody struct {
-	Tag           string
-	Desc          string
-	Path          string
-	Required      bool
-	Sign          bool
-	Type          string
-	IsEmbeddedSet bool
-	EmbeddedSet   *DefEntity
+	Tag      string
+	Desc     string
+	Path     string
+	Required bool
+	Sign     bool
+	Type     string
+
+	IsEmbeddedSet    bool
+	EmbeddedSet      *DefEntity
+	EmbeddedSetCount int
+	EmbeddedIndex    int
 }
 
 var headerReg *regexp.Regexp
@@ -50,6 +55,19 @@ func ReadXmlDef(path string) (map[string]*DefEntity, error) {
 	}
 
 	return buildXmlDefTree(allEntities)
+}
+
+func ReadSingleXmlDef(path string, cmdCode string) (*DefEntity, error) {
+	tree, err := ReadXmlDef(path)
+	if err != nil {
+		return nil, err
+	}
+	entity := tree[cmdCode]
+	err = validEntity(entity)
+	if err != nil {
+		return nil, err
+	}
+	return entity, nil
 }
 
 func readPlainXmlDef(path string) ([]*DefEntity, error) {
@@ -84,17 +102,13 @@ func readPlainXmlDef(path string) ([]*DefEntity, error) {
 		}
 	}
 
-	for _, entity := range allEntities {
-		err := validEntity(entity)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return allEntities, nil
 }
 
 func validEntity(entity *DefEntity) error {
+	if entity.Header.CmtCode == "cips.912.001.01" {
+		return nil
+	}
 	allTags := make(map[string]int)
 	for _, body := range entity.Bodies {
 		if allTags[body.Tag] == 1 {
@@ -119,10 +133,17 @@ func buildXmlDefTree(allEntities []*DefEntity) (map[string]*DefEntity, error) {
 			rootEntities[entity.Header.CmtCode] = entity
 		} else {
 			rootEntity := allCmtCodes[entity.Header.Parent]
+			rootEntity.HasEmbeddedSet = true
 			for _, body := range rootEntity.Bodies {
 				if body.Path == entity.Header.Path {
 					body.IsEmbeddedSet = true
 					body.EmbeddedSet = entity
+					body.EmbeddedSetCount = len(body.EmbeddedSet.Bodies)
+					embeddedIndex, err := strconv.Atoi(strings.ReplaceAll(body.Tag, "KT", ""))
+					if err != nil {
+						return nil, err
+					}
+					body.EmbeddedIndex = embeddedIndex
 				}
 			}
 		}
